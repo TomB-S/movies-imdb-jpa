@@ -1,0 +1,24 @@
+<persistence xmlns="http://xmlns.jcp.org/xml/ns/persistence"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/persistence
+http://xmlns.jcp.org/xml/ns/persistence/persistence_2_1.xsd" version="2.1">
+    <persistence-unit name="movies-bdd" transaction-type="RESOURCE_LOCAL">
+        <provider>org.hibernate.jpa.HibernatePersistenceProvider</provider>
+        <class>fr.diginamic.entities.Country</class>
+        <class>fr.diginamic.entities.Genre</class>
+        <class>fr.diginamic.entities.Language</class>
+        <class>fr.diginamic.entities.BirthPlace</class>
+        <class>fr.diginamic.entities.Person</class>
+        <class>fr.diginamic.entities.Actor</class>
+        <class>fr.diginamic.entities.Director</class>
+        <class>fr.diginamic.entities.Movie</class>
+        <class>fr.diginamic.entities.Role</class>
+        <properties>
+            <property name="jakarta.persistence.jdbc.url" value="jdbc:mysql://localhost:3306/movies" />
+            <property name="jakarta.persistence.jdbc.user" value="root" />
+            <property name="jakarta.persistence.jdbc.password" value="" />
+            <property name="hibernate.show_sql" value="true" />
+            <property name="jakarta.persistence.schema-generation.database.action" value="update" />
+        </properties>
+    </persistence-unit>
+</persistence>
