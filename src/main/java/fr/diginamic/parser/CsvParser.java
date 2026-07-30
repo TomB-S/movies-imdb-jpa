@@ -8,9 +8,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
+import java.util.*;
 
 /**
  * Lit les fichiers CSV du projet et utilise les services pour enregistrer
@@ -61,16 +59,18 @@ public class CsvParser {
         List<String> lignes = Files.readAllLines(home);
         // 3.Découper les lignes
         for(int i = 1; i < lignes.size(); i++){
-            String[] row = lignes.get(i).split(";");
+            String[] row = lignes.get(i).split(";", -1);
             String id = row[0];
             String name = row[1];
-            Integer year = Integer.parseInt(row[2]);
             Double rating = Double.parseDouble(row[3]);
             String filmingPlace = row[5];
             String genre = row[6];
             String language = row[7];
             String summary = row[8];
             String country = row[9];
+
+            String rowYear = row[2].substring(0,4);
+            Integer year = Integer.parseInt(rowYear);
 
             Language languageEntity = languageService.getOrCreateLanguage(language);
             Country countryEntity = countryService.getOrCreateCountry(country);
@@ -143,6 +143,67 @@ public class CsvParser {
             Director director = new Director(id, identite, date, url, birthPlaceEntity);
 
             directorService.create(director);
+        }
+    }
+
+    /**
+     * Lit film_realisateurs.csv et relie chaque film à son (ses) réalisateur(s).
+     * Le film et le réalisateur doivent déjà exister en base (initFilms/initDirectors avant).
+     * @throws Exception si le fichier est introuvable ou illisible
+     */
+    public void initFilmDirectors() throws Exception {
+        Path home = Paths.get(CsvParser.class.getClassLoader().getResource("csv/film_realisateurs.csv").toURI());
+        List<String> lignes = Files.readAllLines(home);
+        for (int i = 1; i < lignes.size(); i++) {
+            String[] row = lignes.get(i).split(";");
+            String movieId = row[0];
+            String directorId = row[1];
+
+            // 1. Recuperer le film et le realisateur deja existants
+            Movie movie = movieService.findById(movieId);
+            Director director = directorService.findById(directorId);
+
+            // 2. Ajouter le realisateur a la liste du film, puis sauvegarder la mise a jour
+            if (movie != null && director != null) {
+                movie.getDirectors().add(director);
+                movieService.create(movie);
+            }
+        }
+    }
+
+    /**
+     * Lit roles.csv et castingPrincipal.csv, et enregistre chaque rôle en base.
+     * Le film et l'acteur doivent déjà exister en base.
+     * @throws Exception si un fichier est introuvable ou illisible
+     */
+    public void initRoles() throws Exception {
+        // 1. Charger castingPrincipal.csv dans un Set, pour savoir vite si un couple film/acteur en fait partie
+        Path castingHome = Paths.get(CsvParser.class.getClassLoader().getResource("csv/castingPrincipal.csv").toURI());
+        List<String> castingLignes = Files.readAllLines(castingHome);
+        Set<String> mainActors = new HashSet<>();
+        for (int i = 1; i < castingLignes.size(); i++) {
+            String[] row = castingLignes.get(i).split(";");
+            mainActors.add(row[0] + "|" + row[1]); // clé "movieId|actorId"
+        }
+
+        // 2. Parser roles.csv
+        Path home = Paths.get(CsvParser.class.getClassLoader().getResource("csv/roles.csv").toURI());
+        List<String> lignes = Files.readAllLines(home);
+        for (int i = 1; i < lignes.size(); i++) {
+            String[] row = lignes.get(i).split(";");
+            String movieId = row[0];
+            String actorId = row[1];
+            String character = row[2];
+
+            Movie movie = movieService.findById(movieId);
+            Actor actor = actorService.findById(actorId);
+
+            boolean isMainActor = mainActors.contains(movieId + "|" + actorId);
+
+            if (movie != null && actor != null) {
+                Role role = new Role(character, isMainActor, movie, actor);
+                roleService.create(role);
+            }
         }
     }
 }

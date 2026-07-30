@@ -42,15 +42,13 @@ public class Main {
         // 1. Préparer le parser avec tous les services
         CsvParser csvParser = new CsvParser(countryService, genreService, languageService, directorService, movieService, actorService, birthPlaceService, roleService);
 
-        // 2. Lancer le parsing, dans l'ordre des dependances :
-        //    Language/Genre/Country (crees en meme temps que les films)
-        //    -> BirthPlace -> Director -> Movie -> Actor -> (Role a venir)
+        // 2. Lancer le parsing, dans l'ordre des dependances.
         try {
             csvParser.initFilms();
             csvParser.initActors();
             csvParser.initDirectors();
-            // csvParser.initFilmDirectors();  // a ajouter
-            // csvParser.initRoles();          // a ecajouterrire
+            csvParser.initFilmDirectors();
+            csvParser.initRoles();
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {

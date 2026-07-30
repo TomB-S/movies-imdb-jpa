@@ -12,16 +12,15 @@ public class CountryService {
         this.countryDao = countryDao;
     }
 
-    // Regle metier : ne jamais dupliquer un pays (unicite imposee par le sujet)
+    // Regle metier : ne jamais dupliquer un pays
     public Country getOrCreateCountry(String name) {
         try {
             // 1. On cherche d'abord si ce pays existe deja en base
             return countryDao.findByName(name);
         } catch (Exception e) {
             // 2. getSingleResult() leve une exception si rien n'est trouve
-            //    => on catch cette exception, ca veut dire "n'existe pas encore"
-            //    => on cree et sauvegarde un nouveau Country
-            Country c = new Country(name, url);
+            //    => on catch cette exception + on cree et sauvegarde un nouveau Country
+            Country c = new Country(name, null);
             countryDao.save(c);
             return c;
         }

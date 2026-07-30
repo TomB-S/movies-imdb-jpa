@@ -25,4 +25,13 @@ public class DirectorService {
     public void create(Director director) {
         directorDao.save(director);
     }
+
+    /**
+     * Recherche un réalisateur par son id
+     * @param id l'identifiant du réalisateur
+     * @return le réalisateur trouvé, ou null
+     */
+    public Director findById(String id) {
+        return directorDao.findById(id);
+    }
 }

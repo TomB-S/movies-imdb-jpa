@@ -25,4 +25,13 @@ public class MovieService {
     public void create(Movie movie) {
         movieDao.save(movie);
     }
+
+    /**
+     * Recherche un film par son id
+     * @param id l'identifiant du film
+     * @return le film trouvé, ou null
+     */
+    public Movie findById(String id) {
+        return movieDao.findById(id);
+    }
 }

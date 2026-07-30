@@ -25,4 +25,13 @@ public class ActorService {
     public void create(Actor actor) {
         actorDao.save(actor);
     }
+
+    /**
+     * Recherche un acteur par son id
+     * @param id l'identifiant de l'acteur
+     * @return l'acteur trouvé, ou null
+     */
+    public Actor findById(String id) {
+        return actorDao.findById(id);
+    }
 }

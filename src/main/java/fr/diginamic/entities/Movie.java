@@ -21,6 +21,8 @@ public class Movie {
     private Integer year;
     private double rating;
     private String filmingPlace;
+
+    @Column(length = 2000)
     private String summary;
 
     @ManyToOne
