@@ -14,7 +14,7 @@ public class LanguageService {
         try {
             return languageDao.findByName(name);
         } catch (Exception ex) {
-            Language l = new Language();
+            Language l = new Language(name);
             languageDao.save(l);
             return l;
         }

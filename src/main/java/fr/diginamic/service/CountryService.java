@@ -13,7 +13,7 @@ public class CountryService {
     }
 
     // Regle metier : ne jamais dupliquer un pays (unicite imposee par le sujet)
-    public Country getOrCreateCountry(String name, String url) {
+    public Country getOrCreateCountry(String name) {
         try {
             // 1. On cherche d'abord si ce pays existe deja en base
             return countryDao.findByName(name);

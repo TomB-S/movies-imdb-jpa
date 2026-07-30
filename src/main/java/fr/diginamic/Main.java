@@ -1,13 +1,11 @@
 package fr.diginamic;
 
-
 import fr.diginamic.dao.*;
 import fr.diginamic.entities.*;
 import fr.diginamic.parser.CsvParser;
 import fr.diginamic.service.*;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
-import jakarta.persistence.EntityTransaction;
 import jakarta.persistence.Persistence;
 
 public class Main {
@@ -41,8 +39,24 @@ public class Main {
         RoleDao roleDao = new RoleDao(em, Role.class);
         RoleService roleService = new RoleService(roleDao);
 
-        CsvParser csvParser = new CsvParser(countryService, genreService, languageService, directorService, movieService, actorService, birthPlaceService, roleService );
+        // 1. Préparer le parser avec tous les services
+        CsvParser csvParser = new CsvParser(countryService, genreService, languageService, directorService, movieService, actorService, birthPlaceService, roleService);
 
-
+        // 2. Lancer le parsing, dans l'ordre des dependances :
+        //    Language/Genre/Country (crees en meme temps que les films)
+        //    -> BirthPlace -> Director -> Movie -> Actor -> (Role a venir)
+        try {
+            csvParser.initFilms();
+            csvParser.initActors();
+            csvParser.initDirectors();
+            // csvParser.initFilmDirectors();  // a ajouter
+            // csvParser.initRoles();          // a ecajouterrire
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            // fermer proprement la connexion une fois le parsing terminé
+            em.close();
+            entityManagerFactory.close();
+        }
     }
 }
