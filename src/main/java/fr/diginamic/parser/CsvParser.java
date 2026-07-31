@@ -13,8 +13,18 @@ import java.util.*;
 /**
  * Lit les fichiers CSV du projet et utilise les services pour enregistrer
  * les données correspondantes en base.
+ * Les fichiers sources contiennent des lignes mal formées (colonnes manquantes,
+ * dates incomplètes, valeurs vides) : chaque ligne est donc traitée dans un
+ * try/catch individuel pour qu'une erreur n'interrompe pas tout l'import.
  */
 public class CsvParser {
+
+    /** Format des dates dans les CSV sources, écrites en anglais (ex : "March 15 1954"). */
+    private static final DateTimeFormatter DATE_FORMATTER =
+            DateTimeFormatter.ofPattern("MMMM d yyyy", Locale.ENGLISH);
+
+    /** Longueur maximale acceptée pour un nom de pays (voir @Column sur l'entité Country). */
+    private static final int MAX_COUNTRY_LENGTH = 200;
 
     private CountryService countryService;
     private GenreService genreService;
@@ -47,61 +57,163 @@ public class CsvParser {
         this.roleService = roleService;
     }
 
+    // ==================== Méthodes utilitaires ====================
+
+    /**
+     * Récupère la colonne demandée, ou une chaîne vide si elle n'existe pas.
+     * Évite les IndexOutOfBounds sur les lignes CSV incomplètes.
+     * @param row la ligne découpée
+     * @param index l'indice de la colonne voulue
+     * @return la valeur nettoyée, ou "" si la colonne est absente
+     */
+    private String getColumn(String[] row, int index) {
+        return index < row.length ? row[index].trim() : "";
+    }
+
+    /**
+     * Convertit une date du CSV en LocalDate.
+     * Gère les dates vides et celles réduites à la seule année (ex : "1960").
+     * @param text la date brute issue du CSV
+     * @return la date convertie, ou null si elle n'est pas exploitable
+     */
+    private LocalDate parseDate(String text) {
+        // certaines dates contiennent des espaces en trop : on les normalise
+        text = text.trim().replaceAll("\\s+", " ");
+
+        if (text.isEmpty()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(text, DATE_FORMATTER);
+        } catch (Exception e) {
+            // certaines lignes ne contiennent que l'année : on garde le 1er janvier
+            try {
+                return LocalDate.of(Integer.parseInt(text), 1, 1);
+            } catch (Exception e2) {
+                return null;
+            }
+        }
+    }
+
+    /**
+     * Convertit une valeur numérique du CSV en double.
+     * @param text la valeur brute issue du CSV
+     * @return la valeur convertie, ou 0 si elle est vide ou illisible
+     */
+    private double parseDouble(String text) {
+        if (text.isEmpty()) {
+            return 0;
+        }
+        try {
+            return Double.parseDouble(text);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Nettoie un nom de pays issu du CSV.
+     * Certaines lignes sont mal découpées (point-virgule présent dans un résumé)
+     * et produisent des valeurs trop longues pour la colonne en base :
+     * on les considère alors comme inconnues plutôt que de perdre la ligne.
+     * @param text le nom de pays brut issu du CSV
+     * @return le nom exploitable, ou "Inconnu"
+     */
+    private String cleanCountryName(String text) {
+        text = text.trim();
+        return (text.isEmpty() || text.length() > MAX_COUNTRY_LENGTH) ? "Inconnu" : text;
+    }
+
+    /**
+     * Construit un lieu de naissance à partir du texte "ville, état, pays".
+     * Les parties absentes sont remplacées par "Inconnu".
+     * @param text le lieu de naissance brut issu du CSV
+     * @return le lieu de naissance récupéré ou créé en base
+     */
+    private BirthPlace parseBirthPlace(String text) {
+        String[] parts = text.split(",");
+        String cityName = parts.length > 0 && !parts[0].trim().isEmpty() ? parts[0].trim() : "Inconnu";
+        String stateName = parts.length > 1 && !parts[1].trim().isEmpty() ? parts[1].trim() : "Inconnu";
+        String countryName = parts.length > 2 ? cleanCountryName(parts[2]) : "Inconnu";
+
+        Country countryEntity = countryService.getOrCreateCountry(countryName);
+        return birthPlaceService.getOrCreateBirthPlace(cityName, stateName, countryEntity);
+    }
+
+    /**
+     * Localise un fichier CSV dans les ressources du projet et lit toutes ses lignes.
+     * @param fileName le nom du fichier, ex : "films.csv"
+     * @return la liste des lignes du fichier, en-tête comprise
+     * @throws Exception si le fichier est introuvable ou illisible
+     */
+    private List<String> readCsv(String fileName) throws Exception {
+        Path home = Paths.get(CsvParser.class.getClassLoader().getResource("csv/" + fileName).toURI());
+        return Files.readAllLines(home);
+    }
+
+    // ==================== Import des données ====================
+
     /**
      * Lit films.csv et enregistre chaque film en base.
-     * Crée et recupère la langue, le pays et les genres.
+     * Crée et récupère la langue, le pays et les genres.
+     * Colonnes : ID IMDB, NOM, ANNEE, RATING, URL, LIEU TOURNAGE, GENRES, LANGUE, RESUME, PAYS
      * @throws Exception si le fichier est introuvable ou illisible
      */
     public void initFilms() throws Exception {
-        // 1. Localiser le fichier
-        Path home = Paths.get(CsvParser.class.getClassLoader().getResource("csv/films.csv").toURI());
-        // 2. Lire le fichier d'un coup
-        List<String> lignes = Files.readAllLines(home);
-        // 3. Découper les lignes
+        List<String> lignes = readCsv("films.csv");
+
+        // on démarre à 1 pour sauter la ligne d'en-tête
         for (int i = 1; i < lignes.size(); i++) {
             try {
                 String[] row = lignes.get(i).split(";", -1); // "-1" garde les colonnes vides en fin de ligne
-                String id = row[0];
-                String name = row[1];
-                String filmingPlace = row[5];
-                String genre = row[6];
-                String language = row[7];
-                String summary = row[8];
-                String country = row[9];
 
-                // le rating peut etre vide dans le CSV, on met 0 par defaut
-                String textRating = row[3].trim();
-                double rating = textRating.isEmpty() ? 0 : Double.parseDouble(textRating);
+                String id = getColumn(row, 0);
+                String name = getColumn(row, 1);
+                String filmingPlace = getColumn(row, 5);
+                String language = getColumn(row, 7);
+                String summary = getColumn(row, 8);
 
-                // l'annee peut etre une plage donc on garde que les 4 premiers caracteres (=1ère année)
-                String rowYear = row[2].substring(0, 4);
-                Integer year = Integer.parseInt(rowYear);
+                // certaines lignes sont mal découpées : le pays peut dépasser la taille en base
+                String country = cleanCountryName(getColumn(row, 9));
+
+                // sans id ni nom la ligne est inexploitable
+                if (id.isEmpty() || name.isEmpty()) {
+                    continue;
+                }
+
+                // le rating peut être vide dans le CSV, on met 0 par défaut
+                double rating = parseDouble(getColumn(row, 3));
+
+                // l'année peut être une plage ("1998-2002") : on garde les 4 premiers caractères
+                String rowYear = getColumn(row, 2);
+                Integer year = rowYear.length() >= 4 ? Integer.parseInt(rowYear.substring(0, 4)) : null;
 
                 // language/country sont juste du texte dans le CSV
-                // => on recupere ou cree l'objet correspondant en base, via les services
+                // => on récupère ou crée l'objet correspondant en base, via les services
                 Language languageEntity = languageService.getOrCreateLanguage(language);
                 Country countryEntity = countryService.getOrCreateCountry(country);
 
-                // un film peut avoir plusieurs genres separes par une virgule
-                // => on decoupe puis on recupere/cree chaque Genre
-                String[] rowGenre = row[6].split(",");
+                // un film peut avoir plusieurs genres séparés par une virgule
+                // => on découpe puis on récupère/crée chaque Genre
                 List<Genre> genres = new ArrayList<>();
-                for (String genreEntity : rowGenre) {
-                    genres.add(genreService.getOrCreateGenre(genreEntity));
+                for (String genreName : getColumn(row, 6).split(",")) {
+                    if (!genreName.trim().isEmpty()) {
+                        genres.add(genreService.getOrCreateGenre(genreName.trim()));
+                    }
                 }
 
-                // les realisateurs seront ajoutes plus tard par initFilmDirectors()
+                // les réalisateurs seront ajoutés plus tard par initFilmDirectors()
                 List<Director> directors = new ArrayList<>();
 
                 Movie movie = new Movie(id, name, year, rating, filmingPlace, summary, languageEntity, countryEntity, genres, directors);
 
                 // certains films apparaissent en double dans le CSV source
-                // => on ne cree le film que s'il n'existe pas deja en base
-                if (movieService.findById(movie.getId()) == null) {
+                // => on ne crée le film que s'il n'existe pas déjà en base
+                if (movieService.findById(id) == null) {
                     movieService.create(movie);
                 }
             } catch (Exception e) {
-                System.out.println("Ligne " + i + " ignorée : " + e.getMessage());
+                System.out.println("FILM - Ligne " + i + " ignorée : " + e.getMessage());
             }
         }
     }
@@ -109,40 +221,42 @@ public class CsvParser {
     /**
      * Lit acteurs.csv et enregistre chaque acteur en base.
      * Crée/récupère le lieu de naissance et le pays au passage.
+     * Colonnes : ID, IDENTITE, DATE NAISSANCE, LIEU NAISSANCE, TAILLE, URL
      * @throws Exception si le fichier est introuvable ou illisible
      */
     public void initActors() throws Exception {
-        // 1. Localiser le fichier
-        Path home = Paths.get(CsvParser.class.getClassLoader().getResource("csv/acteurs.csv").toURI());
-        // 2. Lire le fichier d'un coup
-        List<String> lignes = Files.readAllLines(home);
-        // 3. Découper les lignes
+        List<String> lignes = readCsv("acteurs.csv");
+
         for (int i = 1; i < lignes.size(); i++) {
             try {
-                String[] row = lignes.get(i).split(";");
-                String id = row[0];
-                String identite = row[1];
+                String[] row = lignes.get(i).split(";", -1);
 
-                // dates ecrites en anglais ("March 15 1954") => formatter
-                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMMM d yyyy", Locale.ENGLISH);
-                LocalDate date = LocalDate.parse(row[2].trim(), formatter);
-                double size = Double.parseDouble(row[4].replace(" m", "").trim());
-                String url = row[5];
+                String id = getColumn(row, 0);
+                String identite = getColumn(row, 1);
 
-                // le lieu de naissance est "ville, state, pays" => on decoupe en 3
-                String[] birthPlace = row[3].split(",");
-                String cityName = birthPlace.length > 0 ? birthPlace[0].trim() : "Inconnu";
-                String stateName = birthPlace.length > 1 ? birthPlace[1].trim() : "Inconnu";
-                String countryName = birthPlace.length > 2 ? birthPlace[2].trim() : "Inconnu";
-                Country countryEntity = countryService.getOrCreateCountry(countryName);
+                // sans id ni identité la ligne est inexploitable
+                if (id.isEmpty() || identite.isEmpty()) {
+                    continue;
+                }
 
-                BirthPlace birthPlaceEntity = birthPlaceService.getOrCreateBirthPlace(cityName, stateName, countryEntity);
+                // la date peut être vide ou réduite à l'année => null accepté en base
+                LocalDate date = parseDate(getColumn(row, 2));
+
+                // la taille est écrite avec son unité ("1.75 m") et peut être vide
+                double size = parseDouble(getColumn(row, 4).replace(" m", ""));
+
+                String url = getColumn(row, 5);
+                BirthPlace birthPlaceEntity = parseBirthPlace(getColumn(row, 3));
 
                 Actor actor = new Actor(id, identite, date, url, birthPlaceEntity, size);
 
-                actorService.create(actor);
+                // le même acteur peut apparaître plusieurs fois dans le CSV source
+                // => on ne le crée que s'il n'existe pas déjà en base
+                if (actorService.findById(id) == null) {
+                    actorService.create(actor);
+                }
             } catch (Exception e) {
-                System.out.println("Ligne " + i + " ignorée : " + e.getMessage());
+                System.out.println("ACTEUR - Ligne " + i + " ignorée : " + e.getMessage());
             }
         }
     }
@@ -150,40 +264,37 @@ public class CsvParser {
     /**
      * Lit realisateurs.csv et enregistre chaque réalisateur en base.
      * Crée/récupère le lieu de naissance et le pays au passage.
+     * Colonnes : ID, IDENTITE, DATE NAISSANCE, LIEU NAISSANCE, URL
      * @throws Exception si le fichier est introuvable ou illisible
      */
     public void initDirectors() throws Exception {
-        System.out.println("=== DEBUT initDirectors ===");
-        // 1. Localiser le fichier
-        Path home = Paths.get(CsvParser.class.getClassLoader().getResource("csv/realisateurs.csv").toURI());
-        // 2. Lire le fichier d'un coup
-        List<String> lignes = Files.readAllLines(home);
-        // 3. Découper les lignes
+        List<String> lignes = readCsv("realisateurs.csv");
+
         for (int i = 1; i < lignes.size(); i++) {
             try {
-                String[] row = lignes.get(i).split(";");
-                String id = row[0];
-                String identite = row[1];
-                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMMM d yyyy", Locale.ENGLISH);
-                LocalDate date = LocalDate.parse(row[2].trim(), formatter);
-                String url = row[4];
+                String[] row = lignes.get(i).split(";", -1);
 
-                String[] birthPlace = row[3].split(","); // decoupe "ville, etat, pays"
-                String cityName = birthPlace.length > 0 ? birthPlace[0].trim() : "Inconnu"; // ville si presente
-                String stateName = birthPlace.length > 1 ? birthPlace[1].trim() : "Inconnu"; // etat si present
-                String countryName = birthPlace.length > 2 ? birthPlace[2].trim() : "Inconnu"; // pays si present
-                Country countryEntity = countryService.getOrCreateCountry(countryName); // recupere/cree le pays
+                String id = getColumn(row, 0);
+                String identite = getColumn(row, 1);
 
-                BirthPlace birthPlaceEntity = birthPlaceService.getOrCreateBirthPlace(cityName, stateName, countryEntity);
+                if (id.isEmpty() || identite.isEmpty()) {
+                    continue;
+                }
+
+                LocalDate date = parseDate(getColumn(row, 2));
+                String url = getColumn(row, 4);
+                BirthPlace birthPlaceEntity = parseBirthPlace(getColumn(row, 3));
 
                 Director director = new Director(id, identite, date, url, birthPlaceEntity);
-                System.out.println("Creation director id=" + id);
-                directorService.create(director);
+
+                // le même réalisateur peut apparaître plusieurs fois dans le CSV source
+                if (directorService.findById(id) == null) {
+                    directorService.create(director);
+                }
             } catch (Exception e) {
-                System.out.println("DIRECTOR - Ligne " + i + " ignorée : " + e.getMessage());
+                System.out.println("REALISATEUR - Ligne " + i + " ignorée : " + e.getMessage());
             }
         }
-        System.out.println("=== FIN initDirectors ===");
     }
 
     /**
@@ -192,28 +303,30 @@ public class CsvParser {
      * @throws Exception si le fichier est introuvable ou illisible
      */
     public void initFilmDirectors() throws Exception {
-        // 1. Localiser le fichier
-        Path home = Paths.get(CsvParser.class.getClassLoader().getResource("csv/film_realisateurs.csv").toURI());
-        // 2. Lire le fichier d'un coup
-        List<String> lignes = Files.readAllLines(home);
-        // 3. Découper les lignes
+        List<String> lignes = readCsv("film_realisateurs.csv");
+
         for (int i = 1; i < lignes.size(); i++) {
             try {
-                String[] row = lignes.get(i).split(";");
-                String movieId = row[0];
-                String directorId = row[1];
+                String[] row = lignes.get(i).split(";", -1);
 
-                // ce fichier ne contient que des ids => on va chercher les vrais objets deja en base
+                String movieId = getColumn(row, 0);
+                String directorId = getColumn(row, 1);
+
+                if (movieId.isEmpty() || directorId.isEmpty()) {
+                    continue;
+                }
+
+                // ce fichier ne contient que des ids => on va chercher les vrais objets déjà en base
                 Movie movie = movieService.findById(movieId);
                 Director director = directorService.findById(directorId);
 
-                // on ne relie que si les deux existent, puis on sauvegarde le film mis a jour
-                if (movie != null && director != null) {
+                // on ne relie que si les deux existent, et si le lien n'est pas déjà présent
+                if (movie != null && director != null && !movie.getDirectors().contains(director)) {
                     movie.getDirectors().add(director);
                     movieService.create(movie);
                 }
             } catch (Exception e) {
-                System.out.println("Ligne " + i + " ignorée : " + e.getMessage());
+                System.out.println("FILM/REALISATEUR - Ligne " + i + " ignorée : " + e.getMessage());
             }
         }
     }
@@ -224,40 +337,46 @@ public class CsvParser {
      * @throws Exception si un fichier est introuvable ou illisible
      */
     public void initRoles() throws Exception {
-        // 1. Charger castingPrincipal.csv dans un Set, pour savoir  si un couple film/acteur en fait partie
-        Path castingHome = Paths.get(CsvParser.class.getClassLoader().getResource("csv/castingPrincipal.csv").toURI());
-        List<String> castingLignes = Files.readAllLines(castingHome);
-        // creer boite vide avec Set (les doublons ne sont pas autorises)
+        // 1. Charger castingPrincipal.csv dans un Set, pour savoir si un couple film/acteur en fait partie
+        List<String> castingLignes = readCsv("castingPrincipal.csv");
+
+        // un Set n'autorise pas les doublons et permet une recherche instantanée
         Set<String> mainActors = new HashSet<>();
         for (int i = 1; i < castingLignes.size(); i++) {
-            String[] row = castingLignes.get(i).split(";", -1); // empeche suppression colonne vide
-            mainActors.add(row[0] + "|" + row[1]); // etiquette "movieId|actorId" pour chaque ligne
+            String[] row = castingLignes.get(i).split(";", -1);
+            // étiquette "movieId|actorId" pour identifier chaque couple
+            mainActors.add(getColumn(row, 0) + "|" + getColumn(row, 1));
         }
 
         // 2. Parser roles.csv
-        Path home = Paths.get(CsvParser.class.getClassLoader().getResource("csv/roles.csv").toURI());
-        List<String> lignes = Files.readAllLines(home);
+        List<String> lignes = readCsv("roles.csv");
+
         for (int i = 1; i < lignes.size(); i++) {
             try {
-                String[] row = lignes.get(i).split(";");
-                String movieId = row[0];
-                String actorId = row[1];
-                String character = row[2];
+                String[] row = lignes.get(i).split(";", -1);
 
-                // chercher en base si les objets existent deja
+                String movieId = getColumn(row, 0);
+                String actorId = getColumn(row, 1);
+                String character = getColumn(row, 2); // peut être vide sur certaines lignes
+
+                if (movieId.isEmpty() || actorId.isEmpty()) {
+                    continue;
+                }
+
+                // chercher en base si les objets existent déjà
                 Movie movie = movieService.findById(movieId);
                 Actor actor = actorService.findById(actorId);
 
-                // verifie si le couple (film, acteur) existe deja dans mainActors (castingPrincipal.csv)
+                // vérifie si le couple (film, acteur) fait partie du casting principal
                 boolean isMainActor = mainActors.contains(movieId + "|" + actorId);
 
-                // on ne cree le role que si le film ET l'acteur ont ete trouves en base
+                // on ne crée le rôle que si le film ET l'acteur ont été trouvés en base
                 if (movie != null && actor != null) {
                     Role role = new Role(character, isMainActor, movie, actor);
                     roleService.create(role);
                 }
             } catch (Exception e) {
-                System.out.println("Ligne " + i + " ignorée : " + e.getMessage());
+                System.out.println("ROLE - Ligne " + i + " ignorée : " + e.getMessage());
             }
         }
     }
