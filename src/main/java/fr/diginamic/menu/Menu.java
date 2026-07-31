@@ -34,8 +34,7 @@ public class Menu {
     }
 
     /**
-     * Boucle principale : affiche le menu et traite le choix
-     * de l'utilisateur jusqu'à ce qu'il quitte l'application.
+     * Boucle principale : affiche le menu et traite le choix de l'utilisateur
      */
     public void run() {
         boolean running = true;

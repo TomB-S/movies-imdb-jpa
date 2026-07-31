@@ -70,8 +70,8 @@ public class CsvParser {
                 String country = row[9];
 
                 // le rating peut etre vide dans le CSV, on met 0 par defaut
-                String textRating = "";
-                Double rating = textRating.isEmpty() ? 0 : Double.parseDouble(textRating);
+                String textRating = row[3].trim();
+                double rating = textRating.isEmpty() ? 0 : Double.parseDouble(textRating);
 
                 // l'annee peut etre une plage donc on garde que les 4 premiers caracteres (=1ère année)
                 String rowYear = row[2].substring(0, 4);
