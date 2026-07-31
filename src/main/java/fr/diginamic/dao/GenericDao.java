@@ -36,12 +36,14 @@ public class GenericDao<T, ID> implements Dao<T, ID> {
      */
     @Override
     public void save(T entity) {
-        // A. ouvrir la transaction
-        em.getTransaction().begin();
-        // B. faire l'action (ici : insérer l'entité)
-        em.persist(entity);
-        // C. valider la transaction, pour de vrai en base
-        em.getTransaction().commit();
+        try {
+            em.getTransaction().begin();
+            em.persist(entity);
+            em.getTransaction().commit();
+        } catch (Exception e) {
+            em.getTransaction().rollback();
+            throw e;
+        }
     }
 
     /**

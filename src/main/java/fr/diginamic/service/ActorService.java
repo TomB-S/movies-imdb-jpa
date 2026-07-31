@@ -3,6 +3,8 @@ package fr.diginamic.service;
 import fr.diginamic.dao.ActorDao;
 import fr.diginamic.entities.Actor;
 
+import java.util.List;
+
 /**
  * Service pour l'entité Actor.
  * Pas besoin de vérifier les doublons : l'id de l'acteur vient déjà du fichier source.
@@ -33,5 +35,15 @@ public class ActorService {
      */
     public Actor findById(String id) {
         return actorDao.findById(id);
+    }
+
+    /**
+     * Recherche les acteurs ayant joué dans deux films donnés.
+     * @param firstMovieName le titre du premier film (recherche partielle)
+     * @param secondMovieName le titre du second film (recherche partielle)
+     * @return la liste des acteurs communs aux deux films
+     */
+    public List<Actor> findCommonActors(String firstMovieName, String secondMovieName) {
+        return actorDao.findCommonActors(firstMovieName, secondMovieName);
     }
 }

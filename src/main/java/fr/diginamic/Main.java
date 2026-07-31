@@ -2,6 +2,7 @@ package fr.diginamic;
 
 import fr.diginamic.dao.*;
 import fr.diginamic.entities.*;
+import fr.diginamic.menu.Menu;
 import fr.diginamic.parser.CsvParser;
 import fr.diginamic.service.*;
 import jakarta.persistence.EntityManager;
@@ -49,10 +50,15 @@ public class Main {
             csvParser.initDirectors();
             csvParser.initFilmDirectors();
             csvParser.initRoles();
+
+            // 3. Lancer le menu de recherche sur la base peuplée
+            Menu menu = new Menu(movieService, actorService, roleService);
+            menu.run();
+
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
-            // fermer proprement la connexion une fois le parsing terminé
+            // fermer proprement la connexion une fois le menu terminé
             em.close();
             entityManagerFactory.close();
         }
